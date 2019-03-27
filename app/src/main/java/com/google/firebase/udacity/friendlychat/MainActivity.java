@@ -17,6 +17,7 @@ package com.google.firebase.udacity.friendlychat;
 
 import android.content.Intent;
 import android.os.Bundle;
+import android.support.annotation.NonNull;
 import android.support.v7.app.AppCompatActivity;
 import android.text.Editable;
 import android.text.InputFilter;
@@ -31,9 +32,12 @@ import android.widget.EditText;
 import android.widget.ImageButton;
 import android.widget.ListView;
 import android.widget.ProgressBar;
+import android.widget.Toast;
 
 import com.firebase.ui.auth.AuthUI;
 import com.firebase.ui.auth.IdpResponse;
+import com.google.android.gms.tasks.OnCompleteListener;
+import com.google.android.gms.tasks.Task;
 import com.google.firebase.auth.FirebaseAuth;
 import com.google.firebase.auth.FirebaseUser;
 import com.google.firebase.firestore.CollectionReference;
@@ -49,7 +53,7 @@ import java.util.List;
 
 import javax.annotation.Nullable;
 
-public class MainActivity extends AppCompatActivity implements View.OnClickListener{
+public class MainActivity extends AppCompatActivity implements View.OnClickListener {
 
     private static final String TAG = "MainActivity";
 
@@ -267,6 +271,38 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
 
     @Override
     public boolean onOptionsItemSelected(MenuItem item) {
+        switch (item.getItemId()) {
+            case R.id.sign_out_menu:
+                onLogOutSelected();
+                break;
+            case R.id.delete_menu:
+                onDeleteUserSelected();
+                break;
+        }
+
         return super.onOptionsItemSelected(item);
+    }
+
+    private void onLogOutSelected() {
+        AuthUI.getInstance()
+                .signOut(this)
+                .addOnCompleteListener(new OnCompleteListener<Void>() {
+                    public void onComplete(@NonNull Task<Void> task) {
+                        Log.d(TAG, "Signed out");
+                        Toast.makeText(MainActivity.this, "Signed out", Toast.LENGTH_SHORT).show();
+                    }
+                });
+    }
+
+    private void onDeleteUserSelected() {
+        AuthUI.getInstance()
+                .delete(this)
+                .addOnCompleteListener(new OnCompleteListener<Void>() {
+                    @Override
+                    public void onComplete(@NonNull Task<Void> task) {
+                        Log.d(TAG, "User deleted");
+                        Toast.makeText(MainActivity.this, "User deleted", Toast.LENGTH_SHORT).show();
+                    }
+                });
     }
 }
