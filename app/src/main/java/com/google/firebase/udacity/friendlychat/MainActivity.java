@@ -15,6 +15,7 @@
  */
 package com.google.firebase.udacity.friendlychat;
 
+import android.content.Intent;
 import android.os.Bundle;
 import android.support.v7.app.AppCompatActivity;
 import android.text.Editable;
@@ -31,25 +32,30 @@ import android.widget.ImageButton;
 import android.widget.ListView;
 import android.widget.ProgressBar;
 
+import com.firebase.ui.auth.AuthUI;
+import com.firebase.ui.auth.IdpResponse;
+import com.google.firebase.auth.FirebaseAuth;
+import com.google.firebase.auth.FirebaseUser;
 import com.google.firebase.firestore.CollectionReference;
 import com.google.firebase.firestore.DocumentChange;
-import com.google.firebase.firestore.DocumentSnapshot;
 import com.google.firebase.firestore.EventListener;
 import com.google.firebase.firestore.FirebaseFirestore;
 import com.google.firebase.firestore.FirebaseFirestoreException;
 import com.google.firebase.firestore.QuerySnapshot;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 
 import javax.annotation.Nullable;
 
-public class MainActivity extends AppCompatActivity {
+public class MainActivity extends AppCompatActivity implements View.OnClickListener{
 
     private static final String TAG = "MainActivity";
 
     public static final String ANONYMOUS = "anonymous";
     public static final int DEFAULT_MSG_LENGTH_LIMIT = 1000;
+    public static final int REQUEST_CODE_SIGN_IN = 0;
 
     private ListView mMessageListView;
     private MessageAdapter mMessageAdapter;
@@ -61,6 +67,7 @@ public class MainActivity extends AppCompatActivity {
     private String mUsername;
     private FirebaseFirestore db;
     private CollectionReference msgsRef;
+    private FirebaseUser mUser;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -70,27 +77,34 @@ public class MainActivity extends AppCompatActivity {
         mUsername = ANONYMOUS;
 
         initViews();
-        setDb();
-        listenForMsgsRef();
 
+        // Enable Send button when there's text to send
+        sendButtonStateControl();
+        mMessageEditText.setFilters(new InputFilter[]{new InputFilter.LengthFilter(DEFAULT_MSG_LENGTH_LIMIT)});
 
-        // Initialize message ListView and its adapter
-        List<FriendlyMessage> friendlyMessages = new ArrayList<>();
-        mMessageAdapter = new MessageAdapter(this, R.layout.item_message, friendlyMessages);
-        mMessageListView.setAdapter(mMessageAdapter);
+        initListViewAndAdapter();
 
         // Initialize progress bar
         mProgressBar.setVisibility(ProgressBar.INVISIBLE);
 
-        // ImagePickerButton shows an image picker to upload a image for a message
-        mPhotoPickerButton.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View view) {
-                // TODO: Fire an intent to show an image picker
-            }
-        });
+        startAuthFlow();
 
-        // Enable Send button when there's text to send
+        // ImagePickerButton shows an image picker to upload a image for a message
+        mPhotoPickerButton.setOnClickListener(this);
+
+        // Send button sends a message and clears the EditText
+        mSendButton.setOnClickListener(this);
+    }
+
+    private void initViews() {
+        mProgressBar = findViewById(R.id.progressBar);
+        mMessageListView = findViewById(R.id.messageListView);
+        mPhotoPickerButton = findViewById(R.id.photoPickerButton);
+        mMessageEditText = findViewById(R.id.messageEditText);
+        mSendButton = findViewById(R.id.sendButton);
+    }
+
+    private void sendButtonStateControl() {
         mMessageEditText.addTextChangedListener(new TextWatcher() {
             @Override
             public void beforeTextChanged(CharSequence charSequence, int i, int i1, int i2) {
@@ -109,26 +123,32 @@ public class MainActivity extends AppCompatActivity {
             public void afterTextChanged(Editable editable) {
             }
         });
-        mMessageEditText.setFilters(new InputFilter[]{new InputFilter.LengthFilter(DEFAULT_MSG_LENGTH_LIMIT)});
+    }
 
-        // Send button sends a message and clears the EditText
-        mSendButton.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View view) {
-                // Add to DB
-                String text = mMessageEditText.getText().toString();
-                FriendlyMessage data = new FriendlyMessage(text, mUsername, null);
-                msgsRef.add(data);
+    private void initListViewAndAdapter() {
+        List<FriendlyMessage> friendlyMessages = new ArrayList<>();
+        mMessageAdapter = new MessageAdapter(this, R.layout.item_message, friendlyMessages);
+        mMessageListView.setAdapter(mMessageAdapter);
+    }
 
-                // Clear input box
-                mMessageEditText.setText("");
-            }
-        });
+    private void startAuthFlow() {
+        FirebaseUser user = FirebaseAuth.getInstance().getCurrentUser();
+        if (user != null) {
+            mUser = user;
+            Log.d(TAG, "User is signed in");
+            setDb();
+        } else {
+            Log.d(TAG, "No user is signed in");
+            startAuthActivity();
+        }
     }
 
     private void setDb() {
-        db = FirebaseFirestore.getInstance();
-        msgsRef = db.collection("messages");
+        if (db == null) {
+            db = FirebaseFirestore.getInstance();
+            msgsRef = db.collection("messages");
+            listenForMsgsRef();
+        }
     }
 
     private void listenForMsgsRef() {
@@ -169,14 +189,75 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
-    private void initViews() {
-        mProgressBar = findViewById(R.id.progressBar);
-        mMessageListView = findViewById(R.id.messageListView);
-        mPhotoPickerButton = findViewById(R.id.photoPickerButton);
-        mMessageEditText = findViewById(R.id.messageEditText);
-        mSendButton = findViewById(R.id.sendButton);
+    private void startAuthActivity() {
+
+        List<AuthUI.IdpConfig> providers = Collections.singletonList(
+                new AuthUI.IdpConfig.GoogleBuilder().build());
+
+        // Create and launch sign-in intent
+        startActivityForResult(
+                AuthUI.getInstance()
+                        .createSignInIntentBuilder()
+                        .setAvailableProviders(providers)
+                        .build(),
+                REQUEST_CODE_SIGN_IN);
     }
 
+    @Override
+    protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+        super.onActivityResult(requestCode, resultCode, data);
+        if (requestCode == REQUEST_CODE_SIGN_IN) {
+            IdpResponse response = IdpResponse.fromResultIntent(data);
+
+            if (resultCode == RESULT_OK) {
+                Log.d(TAG, "Successfully signed in");
+                // Successfully signed in
+                mUser = FirebaseAuth.getInstance().getCurrentUser();
+                setDb();
+                // ...
+            } else {
+                Log.d(TAG, "Sign in failed");
+                if (response != null && response.getError() != null) {
+                    Log.d(TAG, "Error code: " + response.getError().getErrorCode());
+                    Log.d(TAG, "Error message: " + response.getError().getMessage());
+                }
+                // Sign in failed. If response is null the user canceled the
+                // sign-in flow using the back button. Otherwise check
+                // response.getError().getErrorCode() and handle the error.
+                // ...
+            }
+        }
+    }
+
+
+    // View.OnCLickListener
+    @Override
+    public void onClick(View v) {
+        switch (v.getId()) {
+            case R.id.sendButton:
+                onSendBtnClick();
+                break;
+            case R.id.photoPickerButton:
+                onPhotoPickerBtnClick();
+                break;
+        }
+    }
+
+    private void onSendBtnClick() {
+        // Add to DB
+        String text = mMessageEditText.getText().toString();
+        FriendlyMessage data = new FriendlyMessage(text, mUsername, null);
+        msgsRef.add(data);
+
+        // Clear input box
+        mMessageEditText.setText("");
+    }
+
+    private void onPhotoPickerBtnClick() {
+        // TODO: Fire an intent to show an image picker
+    }
+
+    //Menu
     @Override
     public boolean onCreateOptionsMenu(Menu menu) {
         MenuInflater inflater = getMenuInflater();
