@@ -20,6 +20,7 @@ import android.support.v7.app.AppCompatActivity;
 import android.text.Editable;
 import android.text.InputFilter;
 import android.text.TextWatcher;
+import android.util.Log;
 import android.view.Menu;
 import android.view.MenuInflater;
 import android.view.MenuItem;
@@ -31,10 +32,17 @@ import android.widget.ListView;
 import android.widget.ProgressBar;
 
 import com.google.firebase.firestore.CollectionReference;
+import com.google.firebase.firestore.DocumentChange;
+import com.google.firebase.firestore.DocumentSnapshot;
+import com.google.firebase.firestore.EventListener;
 import com.google.firebase.firestore.FirebaseFirestore;
+import com.google.firebase.firestore.FirebaseFirestoreException;
+import com.google.firebase.firestore.QuerySnapshot;
 
 import java.util.ArrayList;
 import java.util.List;
+
+import javax.annotation.Nullable;
 
 public class MainActivity extends AppCompatActivity {
 
@@ -61,16 +69,10 @@ public class MainActivity extends AppCompatActivity {
 
         mUsername = ANONYMOUS;
 
-        //DB
-        db = FirebaseFirestore.getInstance();
-        msgsRef = db.collection("messages");
+        initViews();
+        setDb();
+        listenForMsgsRef();
 
-        // Initialize references to views
-        mProgressBar = (ProgressBar) findViewById(R.id.progressBar);
-        mMessageListView = (ListView) findViewById(R.id.messageListView);
-        mPhotoPickerButton = (ImageButton) findViewById(R.id.photoPickerButton);
-        mMessageEditText = (EditText) findViewById(R.id.messageEditText);
-        mSendButton = (Button) findViewById(R.id.sendButton);
 
         // Initialize message ListView and its adapter
         List<FriendlyMessage> friendlyMessages = new ArrayList<>();
@@ -115,13 +117,64 @@ public class MainActivity extends AppCompatActivity {
             public void onClick(View view) {
                 // Add to DB
                 String text = mMessageEditText.getText().toString();
-                FriendlyMessage data = new FriendlyMessage(text, mUsername, "");
+                FriendlyMessage data = new FriendlyMessage(text, mUsername, null);
                 msgsRef.add(data);
 
                 // Clear input box
                 mMessageEditText.setText("");
             }
         });
+    }
+
+    private void setDb() {
+        db = FirebaseFirestore.getInstance();
+        msgsRef = db.collection("messages");
+    }
+
+    private void listenForMsgsRef() {
+        msgsRef.addSnapshotListener(new EventListener<QuerySnapshot>() {
+            @Override
+            public void onEvent(@Nullable QuerySnapshot snapshot, @Nullable FirebaseFirestoreException e) {
+                if (e != null) {
+                    Log.w(TAG, "Listen failed.", e);
+                    return;
+                }
+
+                if (snapshot != null) {
+                    onMsgsReceived(snapshot);
+                } else {
+                    Log.d(TAG, "Current data: null");
+                }
+            }
+        });
+    }
+
+    private void onMsgsReceived(QuerySnapshot snapshot) {
+        Log.d(TAG, "Current data: " + snapshot.getDocuments().size());
+        for (DocumentChange dc : snapshot.getDocumentChanges()) {
+            switch (dc.getType()) {
+                case ADDED:
+                    Log.d(TAG, "New msg: " + dc.getDocument().getData());
+                    FriendlyMessage friendlyMsg = dc.getDocument().toObject(FriendlyMessage.class);
+                    Log.d(TAG, "New msg: " + friendlyMsg.getText());
+                    mMessageAdapter.add(friendlyMsg);
+                    break;
+                case MODIFIED:
+                    Log.d(TAG, "Modified msg: " + dc.getDocument().getData());
+                    break;
+                case REMOVED:
+                    Log.d(TAG, "Removed msg: " + dc.getDocument().getData());
+                    break;
+            }
+        }
+    }
+
+    private void initViews() {
+        mProgressBar = findViewById(R.id.progressBar);
+        mMessageListView = findViewById(R.id.messageListView);
+        mPhotoPickerButton = findViewById(R.id.photoPickerButton);
+        mMessageEditText = findViewById(R.id.messageEditText);
+        mSendButton = findViewById(R.id.sendButton);
     }
 
     @Override
