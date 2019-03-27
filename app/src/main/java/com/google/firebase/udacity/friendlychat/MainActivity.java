@@ -16,6 +16,7 @@
 package com.google.firebase.udacity.friendlychat;
 
 import android.content.Intent;
+import android.net.Uri;
 import android.os.Bundle;
 import android.support.annotation.NonNull;
 import android.support.v7.app.AppCompatActivity;
@@ -36,6 +37,7 @@ import android.widget.Toast;
 
 import com.firebase.ui.auth.AuthUI;
 import com.firebase.ui.auth.IdpResponse;
+import com.google.android.gms.tasks.Continuation;
 import com.google.android.gms.tasks.OnCompleteListener;
 import com.google.android.gms.tasks.Task;
 import com.google.firebase.auth.FirebaseAuth;
@@ -48,6 +50,7 @@ import com.google.firebase.firestore.FirebaseFirestoreException;
 import com.google.firebase.firestore.QuerySnapshot;
 import com.google.firebase.storage.FirebaseStorage;
 import com.google.firebase.storage.StorageReference;
+import com.google.firebase.storage.UploadTask;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -62,6 +65,7 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
     public static final String ANONYMOUS = "anonymous";
     public static final int DEFAULT_MSG_LENGTH_LIMIT = 1000;
     public static final int REQUEST_CODE_SIGN_IN = 0;
+    public static final int REQUEST_CODE_PHOTO_PICKER = 1;
 
     private ListView mMessageListView;
     private MessageAdapter mMessageAdapter;
@@ -159,6 +163,7 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
         }
         if (storage == null) {
             storage = FirebaseStorage.getInstance();
+            // gs://friendlychat-fbbc0.appspot.com/chat_photos
             imagesRef = storage.getReference().child("chat_photos");
         }
     }
@@ -188,7 +193,6 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
                 case ADDED:
                     Log.d(TAG, "New msg: " + dc.getDocument().getData());
                     FriendlyMessage friendlyMsg = dc.getDocument().toObject(FriendlyMessage.class);
-                    Log.d(TAG, "New msg: " + friendlyMsg.getText());
                     mMessageAdapter.add(friendlyMsg);
                     break;
                 case MODIFIED:
@@ -218,27 +222,84 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
     @Override
     protected void onActivityResult(int requestCode, int resultCode, Intent data) {
         super.onActivityResult(requestCode, resultCode, data);
-        if (requestCode == REQUEST_CODE_SIGN_IN) {
-            IdpResponse response = IdpResponse.fromResultIntent(data);
 
-            if (resultCode == RESULT_OK) {
-                Log.d(TAG, "Successfully signed in");
-                // Successfully signed in
-                mUser = FirebaseAuth.getInstance().getCurrentUser();
-                setDb();
-                // ...
-            } else {
-                Log.d(TAG, "Sign in failed");
-                if (response != null && response.getError() != null) {
-                    Log.d(TAG, "Error code: " + response.getError().getErrorCode());
-                    Log.d(TAG, "Error message: " + response.getError().getMessage());
-                }
-                // Sign in failed. If response is null the user canceled the
-                // sign-in flow using the back button. Otherwise check
-                // response.getError().getErrorCode() and handle the error.
-                // ...
-            }
+        switch (requestCode) {
+            case REQUEST_CODE_SIGN_IN:
+                onSignInResult(resultCode, data);
+                break;
+            case REQUEST_CODE_PHOTO_PICKER:
+                onSignPhotoPickerResult(resultCode, data);
+                break;
         }
+
+    }
+
+    private void onSignInResult(int resultCode, Intent data) {
+        IdpResponse response = IdpResponse.fromResultIntent(data);
+
+        if (resultCode == RESULT_OK) {
+            Log.d(TAG, "Successfully signed in");
+            // Successfully signed in
+            mUser = FirebaseAuth.getInstance().getCurrentUser();
+            setDb();
+            // ...
+        } else {
+            Log.d(TAG, "Sign in failed");
+            if (response != null && response.getError() != null) {
+                Log.d(TAG, "Error code: " + response.getError().getErrorCode());
+                Log.d(TAG, "Error message: " + response.getError().getMessage());
+            }
+            // Sign in failed. If response is null the user canceled the
+            // sign-in flow using the back button. Otherwise check
+            // response.getError().getErrorCode() and handle the error.
+            // ...
+        }
+    }
+
+    private void onSignPhotoPickerResult(int resultCode, Intent data) {
+        if (resultCode == RESULT_OK) {
+            Log.d(TAG, "Got image");
+            Uri uri = data.getData();
+            if (uri != null && uri.getLastPathSegment() != null) {
+                onUriReceived(uri);
+            }
+        } else {
+            Log.d(TAG, "Failed to get image");
+        }
+    }
+
+    @SuppressWarnings("ConstantConditions")
+    private void onUriReceived(Uri uri) {
+        Log.d(TAG, "onUriReceived. URI: " + uri);
+        // Create a reference for a photo
+        final StorageReference photoRef = imagesRef.child(uri.getLastPathSegment());
+        // Upload file to storage
+        photoRef.putFile(uri).continueWithTask(new Continuation<UploadTask.TaskSnapshot, Task<Uri>>() {
+            @Override
+            public Task<Uri> then(@NonNull Task<UploadTask.TaskSnapshot> task) {
+                if (!task.isSuccessful()) {
+                    Log.d(TAG, "Failed to upload 1");
+                }
+                // Continue with the task to get the download URL
+                return photoRef.getDownloadUrl();
+            }
+        }).addOnCompleteListener(new OnCompleteListener<Uri>() {
+            @Override
+            public void onComplete(@NonNull Task<Uri> task) {
+                if (task.isSuccessful()) {
+                    Uri downloadUri = task.getResult();
+                    Log.d(TAG, "Uploaded. URI: " + downloadUri);
+                    sendImageToDb(downloadUri);
+                } else {
+                    Log.d(TAG, "Failed to upload 2");
+                }
+            }
+        });
+    }
+
+    private void sendImageToDb(Uri uri) {
+        FriendlyMessage data = new FriendlyMessage(null, mUsername, uri.toString());
+        msgsRef.add(data);
     }
 
 
@@ -266,7 +327,11 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
     }
 
     private void onPhotoPickerBtnClick() {
-        // TODO: Fire an intent to show an image picker
+        Intent intent = new Intent(Intent.ACTION_GET_CONTENT);
+        intent.setType("image/jpeg");
+        intent.putExtra(Intent.EXTRA_LOCAL_ONLY, true);
+        startActivityForResult(Intent.createChooser(intent,
+                "Complete action using"), REQUEST_CODE_PHOTO_PICKER);
     }
 
     //Menu
