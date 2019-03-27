@@ -46,6 +46,8 @@ import com.google.firebase.firestore.EventListener;
 import com.google.firebase.firestore.FirebaseFirestore;
 import com.google.firebase.firestore.FirebaseFirestoreException;
 import com.google.firebase.firestore.QuerySnapshot;
+import com.google.firebase.storage.FirebaseStorage;
+import com.google.firebase.storage.StorageReference;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -72,6 +74,8 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
     private FirebaseFirestore db;
     private CollectionReference msgsRef;
     private FirebaseUser mUser;
+    private FirebaseStorage storage;
+    private StorageReference imagesRef;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -152,6 +156,10 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
             db = FirebaseFirestore.getInstance();
             msgsRef = db.collection("messages");
             listenForMsgsRef();
+        }
+        if (storage == null) {
+            storage = FirebaseStorage.getInstance();
+            imagesRef = storage.getReference().child("chat_photos");
         }
     }
 
